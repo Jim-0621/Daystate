@@ -410,8 +410,11 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
   const chartData = visible.map((entry) => ({ ...entry, battery: batteryPercent(entry.fatigue), label: entry.date.slice(5).replace('-', '/') }))
   const averageBattery = average(visible.map((entry) => batteryPercent(entry.fatigue)))
   const entrySet = new Set(entries.map((entry) => entry.date))
+  const today = localDate()
+  const loggedToday = entrySet.has(today)
+  // 今天还没记录时从昨天起算，连续记录只在整天空过后才归零
   let streak = 0
-  let cursor = localDate()
+  let cursor = loggedToday ? today : addDays(today, -1)
   while (entrySet.has(cursor)) { streak += 1; cursor = addDays(cursor, -1) }
 
   return (
@@ -424,7 +427,7 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
         <article className="stat-card"><span>平均心情</span><strong>{average(visible.map((entry) => entry.mood))}</strong><small>满分 5 分</small></article>
         <article className="stat-card"><span>平均电量</span><strong>{averageBattery === '—' ? '—' : `${averageBattery}%`}</strong><small>满电为 100%</small></article>
         <article className="stat-card"><span>记录天数</span><strong>{visible.length}</strong><small>最近 {range} 天</small></article>
-        <article className="stat-card"><span>连续记录</span><strong>{streak}</strong><small>天</small></article>
+        <article className="stat-card"><span>连续记录</span><strong>{streak}</strong><small>{streak > 0 && !loggedToday ? '天 · 今天还没记' : '天'}</small></article>
       </div>
       <section className="chart-card">
         <div className="card-heading"><div><h2>心情与电量变化</h2><p>将两条曲线放在一起，更容易发现关联。</p></div></div>
