@@ -1,4 +1,4 @@
-import type { EntryInput, MoodEntry, User } from './types'
+import type { EntryInput, MoodEntry, Tag, TagInput, User } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -25,4 +25,14 @@ export const api = {
     method: 'PUT', body: JSON.stringify(entry),
   }),
   deleteEntry: (date: string) => request<{ ok: true }>(`/api/entries/${date}`, { method: 'DELETE' }),
+  tags: () => request<{ tags: Tag[] }>('/api/tags'),
+  createTag: (tag: TagInput) => request<{ tags: Tag[] }>('/api/tags', {
+    method: 'POST', body: JSON.stringify(tag),
+  }),
+  updateTag: (name: string, tag: TagInput) => request<{ tags: Tag[]; affected: number }>(`/api/tags/${encodeURIComponent(name)}`, {
+    method: 'PUT', body: JSON.stringify(tag),
+  }),
+  deleteTag: (name: string) => request<{ tags: Tag[]; affected: number }>(`/api/tags/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  }),
 }

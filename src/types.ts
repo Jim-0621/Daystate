@@ -5,6 +5,19 @@ export interface User {
   username: string
 }
 
+export interface Tag {
+  name: string
+  color: string
+  initial: string
+  sortOrder: number
+}
+
+export interface TagInput {
+  name: string
+  color: string
+  initial: string
+}
+
 export interface MoodEntry {
   date: string
   mood: Score

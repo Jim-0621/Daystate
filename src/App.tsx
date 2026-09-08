@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   CalendarDays, ChartNoAxesCombined, Check, ChevronLeft, ChevronRight, Cloud,
-  Download, LoaderCircle, LogOut, NotebookPen, Plus, RefreshCw, Settings,
-  Sparkles, Trash2, X,
+  Download, LoaderCircle, LogOut, NotebookPen, Pencil, Plus, RefreshCw, Settings,
+  Sparkles, Tags, Trash2, X,
 } from 'lucide-react'
 import {
   CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { api } from './api'
-import type { EntryInput, MoodEntry, Page, Score, User } from './types'
+import type { EntryInput, MoodEntry, Page, Score, Tag, TagInput, User } from './types'
 
 const moodOptions: Array<{ value: Score; emoji: string; label: string }> = [
   { value: 1, emoji: '😞', label: '低落' },
@@ -26,7 +26,21 @@ const batteryOptions: Array<{ value: Score; percent: number; label: string }> = 
   { value: 1, percent: 100, label: '满电状态' },
 ]
 
-const suggestedTags = ['工作', '运动', '家庭', '朋友', '学习', '睡眠', '生病', '旅行']
+// 设置页新建标签时可选的颜色，与后端种子标签同源
+const tagPalette = [
+  '#4a7fb5', '#3f9e79', '#c9784f', '#b5698f', '#7a6bb5', '#5b8fa8',
+  '#b55a4a', '#c2a03f', '#5f8f5a', '#a86ba8', '#4f8f8f', '#7a7a72',
+]
+
+// 历史记录里出现、但标签库中已无定义的标签的兜底样式
+function fallbackTag(name: string): Tag {
+  return { name, color: '#a8a59d', initial: [...name][0] ?? '·', sortOrder: 9_999 }
+}
+
+function tagLookup(tags: Tag[]) {
+  const map = new Map(tags.map((tag) => [tag.name, tag]))
+  return (name: string) => map.get(name) ?? fallbackTag(name)
+}
 
 function localDate(date = new Date()) {
   const year = date.getFullYear()
@@ -51,6 +65,10 @@ function prettyDate(value: string) {
   if (value === today) return '今天'
   if (value === addDays(today, -1)) return '昨天'
   return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(dateFrom(value))
+}
+
+function formatDayLabel(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' }).format(dateFrom(value))
 }
 
 function formatMonth(date: Date) {
@@ -150,6 +168,26 @@ function LoginView({ onAuthenticated }: { onAuthenticated: (user: User) => void 
   )
 }
 
+function DateStepper({ date, onDateChange }: { date: string; onDateChange: (date: string) => void }) {
+  const today = localDate()
+  const atToday = date >= today
+  return (
+    <div className="date-stepper">
+      <button type="button" className="step-arrow" onClick={() => onDateChange(addDays(date, -1))} aria-label="前一天">
+        <ChevronLeft size={18} />
+      </button>
+      <label className="step-face">
+        <CalendarDays size={16} aria-hidden="true" />
+        <span>{date === today ? '今天' : formatDayLabel(date)}</span>
+        <input type="date" max={today} value={date} onChange={(event) => { if (event.target.value) onDateChange(event.target.value) }} aria-label="选择记录日期" />
+      </label>
+      <button type="button" className="step-arrow" onClick={() => onDateChange(addDays(date, 1))} disabled={atToday} aria-label="后一天">
+        <ChevronRight size={18} />
+      </button>
+    </div>
+  )
+}
+
 function ScorePicker({ kind, value, onChange }: { kind: 'mood' | 'battery'; value: Score; onChange: (value: Score) => void }) {
   if (kind === 'battery') {
     return (
@@ -194,60 +232,34 @@ function ScorePicker({ kind, value, onChange }: { kind: 'mood' | 'battery'; valu
 }
 
 function RecordView({
-  date, entry, onDateChange, onSave, onDelete,
+  date, entry, tagLibrary, onDateChange, onSave, onDelete, onManageTags,
 }: {
   date: string
   entry?: MoodEntry
+  tagLibrary: Tag[]
   onDateChange: (date: string) => void
   onSave: (input: EntryInput) => Promise<void>
   onDelete: () => Promise<void>
+  onManageTags: () => void
 }) {
   const [mood, setMood] = useState<Score>(3)
   const [fatigue, setFatigue] = useState<Score>(3)
   const [note, setNote] = useState('')
   const [tags, setTags] = useState<string[]>([])
-  const [customTag, setCustomTag] = useState('')
-  const [tagMessage, setTagMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [message, setMessage] = useState('')
-  const tagInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setMood(entry?.mood ?? 3)
     setFatigue(entry?.fatigue ?? 3)
     setNote(entry?.note ?? '')
     setTags(entry?.tags ?? [])
-    setCustomTag('')
-    setTagMessage('')
     setMessage('')
   }, [date])
 
   function toggleTag(tag: string) {
-    setTagMessage('')
     setTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : current.length < 8 ? [...current, tag] : current)
-  }
-
-  function addCustomTag() {
-    const value = customTag.trim()
-    if (!value) {
-      setTagMessage('请先输入标签名称')
-      tagInputRef.current?.focus()
-      return
-    }
-    if (tags.includes(value)) {
-      setTagMessage('这个标签已经添加过了')
-      tagInputRef.current?.focus()
-      return
-    }
-    if (tags.length >= 8) {
-      setTagMessage('最多添加 8 个标签')
-      return
-    }
-    setTags((current) => [...current, value.slice(0, 20)])
-    setCustomTag('')
-    setTagMessage('标签已添加')
-    tagInputRef.current?.focus()
   }
 
   async function submit(event: FormEvent) {
@@ -286,10 +298,7 @@ function RecordView({
           <h1>{prettyDate(date)}，感觉怎么样？</h1>
           <p>不用写得完整，真实就很好。</p>
         </div>
-        <label className="date-control" aria-label="选择记录日期">
-          <input className="date-input" type="date" max={localDate()} value={date} onChange={(event) => { if (event.target.value) onDateChange(event.target.value) }} required />
-          <CalendarDays size={17} aria-hidden="true" />
-        </label>
+        <DateStepper date={date} onDateChange={onDateChange} />
       </header>
 
       <form className="record-form" onSubmit={submit}>
@@ -305,21 +314,37 @@ function RecordView({
 
         <section className="form-section">
           <div className="section-heading"><span className="section-number">03</span><div><h2>今天发生了什么</h2><p>可选，写下一句话也很好</p></div></div>
-          <textarea className="note-input" value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="比如：完成了一件拖了很久的事，虽然电量不多，但心里轻松了……" />
+          <textarea className="note-input" value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="今天见了谁、做了什么、心里在想什么……" />
           <div className="character-count">{note.length} / 2000</div>
         </section>
 
         <section className="form-section compact">
           <div className="section-heading"><span className="section-number">04</span><div><h2>加几个标签</h2><p>以后更容易发现状态变化的原因</p></div></div>
           <div className="tag-list">
-            {suggestedTags.map((tag) => <button type="button" key={tag} className={tags.includes(tag) ? 'tag selected' : 'tag'} onClick={() => toggleTag(tag)}>{tags.includes(tag) && <Check size={14} />}{tag}</button>)}
-            {tags.filter((tag) => !suggestedTags.includes(tag)).map((tag) => <button type="button" key={tag} className="tag selected" onClick={() => toggleTag(tag)}><X size={14} />{tag}</button>)}
+            {tagLibrary.map((tag) => {
+              const picked = tags.includes(tag.name)
+              return (
+                <button
+                  type="button"
+                  key={tag.name}
+                  className={picked ? 'tag selected' : 'tag'}
+                  onClick={() => toggleTag(tag.name)}
+                  style={picked ? { borderColor: tag.color, background: `${tag.color}1f`, color: tag.color } : undefined}
+                >
+                  {picked ? <Check size={14} /> : <i className="tag-dot" style={{ background: tag.color }} />}
+                  {tag.name}
+                </button>
+              )
+            })}
+            {/* 标签库里已删除、但这条记录仍在使用的标签 */}
+            {tags.filter((name) => !tagLibrary.some((tag) => tag.name === name)).map((name) => (
+              <button type="button" key={name} className="tag selected orphan" onClick={() => toggleTag(name)}><X size={14} />{name}</button>
+            ))}
           </div>
-          <div className="custom-tag-row">
-            <input ref={tagInputRef} value={customTag} onChange={(event) => { setCustomTag(event.target.value); setTagMessage('') }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addCustomTag() } }} maxLength={20} placeholder="输入自定义标签" aria-describedby="tag-feedback" />
-            <button type="button" className="icon-text-button" onClick={addCustomTag}><Plus size={16} />添加</button>
-          </div>
-          <span id="tag-feedback" className={`tag-feedback ${tagMessage === '标签已添加' ? 'success' : ''}`} aria-live="polite">{tagMessage || '输入后点击添加，也可以按回车'}</span>
+          <span className="tag-feedback">
+            最多选 8 个，已选 {tags.length} 个。要新增或修改标签，去
+            <button type="button" className="link-button" onClick={onManageTags}>设置 · 标签管理</button>
+          </span>
         </section>
 
         <div className="form-actions">
@@ -335,7 +360,8 @@ function RecordView({
   )
 }
 
-function CalendarView({ entries, onSelect }: { entries: MoodEntry[]; onSelect: (date: string) => void }) {
+function CalendarView({ entries, tagLibrary, onSelect }: { entries: MoodEntry[]; tagLibrary: Tag[]; onSelect: (date: string) => void }) {
+  const lookupTag = useMemo(() => tagLookup(tagLibrary), [tagLibrary])
   const [month, setMonth] = useState(() => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), 1) })
   const entryMap = useMemo(() => new Map(entries.map((entry) => [entry.date, entry])), [entries])
   const cells = useMemo(() => {
@@ -381,6 +407,21 @@ function CalendarView({ entries, onSelect }: { entries: MoodEntry[]; onSelect: (
                 {entry && (
                   <>
                     <span className="day-emoji">{moodOptions[entry.mood - 1].emoji}</span>
+                    {entry.tags.length > 0 && (
+                      <span className="day-tags">
+                        {entry.tags.slice(0, 3).map((name) => {
+                          const tag = lookupTag(name)
+                          return (
+                            <i key={name} className="day-tag" style={{ background: tag.color }} title={tag.name}>
+                              {/* 桌面显示全名，窄屏由 CSS 切换成首字 */}
+                              <b className="tag-full">{tag.name}</b>
+                              <b className="tag-initial">{tag.initial}</b>
+                            </i>
+                          )
+                        })}
+                        {entry.tags.length > 3 && <i className="day-tag more">+{entry.tags.length - 3}</i>}
+                      </span>
+                    )}
                     <span className={`day-battery battery-${batteryPercent(entry.fatigue)}`} aria-label={`剩余电量 ${batteryPercent(entry.fatigue)}%`}>
                       <i style={{ width: `${batteryPercent(entry.fatigue)}%` }} />
                     </span>
@@ -456,7 +497,167 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
   )
 }
 
-function SettingsView({ user, entries, onLogout, onRefresh, refreshing }: { user: User; entries: MoodEntry[]; onLogout: () => Promise<void>; onRefresh: () => Promise<void>; refreshing: boolean }) {
+function TagManager({ tagLibrary, entries, onCreate, onUpdate, onDelete }: {
+  tagLibrary: Tag[]
+  entries: MoodEntry[]
+  onCreate: (tag: TagInput) => Promise<void>
+  onUpdate: (name: string, tag: TagInput) => Promise<number>
+  onDelete: (name: string) => Promise<number>
+}) {
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState<TagInput>({ name: '', color: tagPalette[0], initial: '' })
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [failed, setFailed] = useState(false)
+
+  // 每个标签被多少条记录用过，改名和删除前需要让用户知道影响面
+  const usage = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const entry of entries) for (const name of entry.tags) counts.set(name, (counts.get(name) ?? 0) + 1)
+    return counts
+  }, [entries])
+
+  function report(text: string, isError = false) {
+    setMessage(text)
+    setFailed(isError)
+  }
+
+  function startCreate() {
+    setEditing('')
+    setDraft({ name: '', color: tagPalette[tagLibrary.length % tagPalette.length], initial: '' })
+    report('')
+  }
+
+  function startEdit(tag: Tag) {
+    setEditing(tag.name)
+    setDraft({ name: tag.name, color: tag.color, initial: tag.initial })
+    report('')
+  }
+
+  function cancel() {
+    setEditing(null)
+    report('')
+  }
+
+  async function submit() {
+    const name = draft.name.trim()
+    if (!name) return report('请填写标签名', true)
+    // 首字留空时默认取标签名第一个字
+    const initial = draft.initial.trim() || [...name][0] || ''
+    setBusy(true)
+    try {
+      if (editing) {
+        const affected = await onUpdate(editing, { ...draft, name, initial })
+        report(affected ? `已保存，同步更新了 ${affected} 条记录` : '已保存')
+      } else {
+        await onCreate({ ...draft, name, initial })
+        report('标签已创建')
+      }
+      setEditing(null)
+    } catch (cause) {
+      report(cause instanceof Error ? cause.message : '保存失败', true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(tag: Tag) {
+    const used = usage.get(tag.name) ?? 0
+    const warning = used
+      ? `确定删除标签「${tag.name}」吗？它会同时从 ${used} 条记录中移除，此操作无法撤销。`
+      : `确定删除标签「${tag.name}」吗？`
+    if (!window.confirm(warning)) return
+    setBusy(true)
+    try {
+      const affected = await onDelete(tag.name)
+      report(affected ? `已删除，并从 ${affected} 条记录中移除` : '标签已删除')
+      if (editing === tag.name) setEditing(null)
+    } catch (cause) {
+      report(cause instanceof Error ? cause.message : '删除失败', true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const previewName = draft.name.trim() || '标签'
+  const previewInitial = draft.initial.trim() || [...previewName][0] || '·'
+
+  return (
+    <section className="settings-card">
+      <div className="settings-heading">
+        <div><h2>标签管理</h2><p>标签的名称、颜色和首字都可以改。桌面日历显示完整名称，手机上显示首字。</p></div>
+        <button className="secondary-button" onClick={startCreate} disabled={busy}><Plus size={17} />新建标签</button>
+      </div>
+
+      {editing !== null && (
+        <div className="tag-editor">
+          <div className="tag-editor-row">
+            <label className="field-label">标签名
+              <input value={draft.name} maxLength={20} onChange={(event) => setDraft((d) => ({ ...d, name: event.target.value }))} placeholder="例如：工作" />
+            </label>
+            <label className="field-label">首字
+              <input value={draft.initial} maxLength={2} onChange={(event) => setDraft((d) => ({ ...d, initial: event.target.value }))} placeholder={[...previewName][0] ?? ''} />
+            </label>
+            <div className="tag-preview">
+              <span>预览</span>
+              <i className="day-tag" style={{ background: draft.color }}><b>{previewName}</b></i>
+              <i className="day-tag" style={{ background: draft.color }}><b>{previewInitial}</b></i>
+            </div>
+          </div>
+          <div className="color-row" role="radiogroup" aria-label="标签颜色">
+            {tagPalette.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className={draft.color === color ? 'color-swatch selected' : 'color-swatch'}
+                style={{ background: color }}
+                onClick={() => setDraft((d) => ({ ...d, color }))}
+                role="radio"
+                aria-checked={draft.color === color}
+                aria-label={`颜色 ${color}`}
+              />
+            ))}
+          </div>
+          <div className="tag-editor-actions">
+            <button className="primary-button" onClick={submit} disabled={busy}>
+              {busy && <LoaderCircle className="spin" size={16} />}{editing ? '保存修改' : '创建标签'}
+            </button>
+            <button className="secondary-button" onClick={cancel} disabled={busy}>取消</button>
+          </div>
+        </div>
+      )}
+
+      {message && <p className={failed ? 'action-message error' : 'action-message'}>{message}</p>}
+
+      <div className="tag-manage-list">
+        {tagLibrary.map((tag) => (
+          <div className="tag-row" key={tag.name}>
+            <i className="day-tag" style={{ background: tag.color }}><b>{tag.initial}</b></i>
+            <div className="tag-row-main">
+              <strong>{tag.name}</strong>
+              <span>{usage.get(tag.name) ?? 0} 条记录用过</span>
+            </div>
+            <button className="icon-button small" onClick={() => startEdit(tag)} disabled={busy} aria-label={`编辑 ${tag.name}`}><Pencil size={15} /></button>
+            <button className="icon-button small danger" onClick={() => void remove(tag)} disabled={busy} aria-label={`删除 ${tag.name}`}><Trash2 size={15} /></button>
+          </div>
+        ))}
+        {!tagLibrary.length && <p className="tag-empty"><Tags size={20} />还没有标签，点右上角新建一个。</p>}
+      </div>
+    </section>
+  )
+}
+
+function SettingsView({ user, entries, tagLibrary, onLogout, onRefresh, refreshing, onCreateTag, onUpdateTag, onDeleteTag }: {
+  user: User
+  entries: MoodEntry[]
+  tagLibrary: Tag[]
+  onLogout: () => Promise<void>
+  onRefresh: () => Promise<void>
+  refreshing: boolean
+  onCreateTag: (tag: TagInput) => Promise<void>
+  onUpdateTag: (name: string, tag: TagInput) => Promise<number>
+  onDeleteTag: (name: string) => Promise<number>
+}) {
   function download(content: string, type: string, filename: string) {
     const url = URL.createObjectURL(new Blob([content], { type }))
     const anchor = document.createElement('a')
@@ -487,6 +688,7 @@ function SettingsView({ user, entries, onLogout, onRefresh, refreshing }: { user
       <section className="settings-card">
         <div className="settings-heading"><div><h2>云端数据</h2><p>日况以 Cloudflare D1 为唯一数据源，多台设备登录同一账号即可看到相同记录。</p></div><button className="secondary-button" onClick={onRefresh} disabled={refreshing}><RefreshCw className={refreshing ? 'spin' : ''} size={17} />立即刷新</button></div>
       </section>
+      <TagManager tagLibrary={tagLibrary} entries={entries} onCreate={onCreateTag} onUpdate={onUpdateTag} onDelete={onDeleteTag} />
       <section className="settings-card">
         <div className="settings-heading"><div><h2>导出备份</h2><p>随时下载完整记录。JSON 适合备份，CSV 适合使用 Excel 查看。</p></div></div>
         <div className="button-row"><button className="secondary-button" onClick={exportJson}><Download size={17} />导出 JSON</button><button className="secondary-button" onClick={exportCsv}><Download size={17} />导出 CSV</button></div>
@@ -511,6 +713,7 @@ function JournalApp({ user, onLoggedOut }: { user: User; onLoggedOut: () => void
   const [page, setPage] = useState<Page>('record')
   const [selectedDate, setSelectedDate] = useState(localDate())
   const [entries, setEntries] = useState<MoodEntry[]>([])
+  const [tagLibrary, setTagLibrary] = useState<Tag[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -518,14 +721,34 @@ function JournalApp({ user, onLoggedOut }: { user: User; onLoggedOut: () => void
     setLoadError('')
     setLoading(true)
     try {
-      const result = await api.entries()
-      setEntries(result.entries)
+      const [entryResult, tagResult] = await Promise.all([api.entries(), api.tags()])
+      setEntries(entryResult.entries)
+      setTagLibrary(tagResult.tags)
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : '记录加载失败')
     } finally {
       setLoading(false)
     }
   }, [])
+
+  async function createTag(tag: TagInput) {
+    setTagLibrary((await api.createTag(tag)).tags)
+  }
+
+  // 改名和删除都会改写历史记录，成功后重新拉取记录以保持一致
+  async function updateTag(name: string, tag: TagInput) {
+    const result = await api.updateTag(name, tag)
+    setTagLibrary(result.tags)
+    if (result.affected) setEntries((await api.entries()).entries)
+    return result.affected
+  }
+
+  async function deleteTag(name: string) {
+    const result = await api.deleteTag(name)
+    setTagLibrary(result.tags)
+    if (result.affected) setEntries((await api.entries()).entries)
+    return result.affected
+  }
 
   useEffect(() => { void loadEntries() }, [loadEntries])
   const selectedEntry = entries.find((entry) => entry.date === selectedDate)
@@ -561,10 +784,10 @@ function JournalApp({ user, onLoggedOut }: { user: User; onLoggedOut: () => void
         {loadError && <div className="load-error"><span>{loadError}</span><button onClick={() => void loadEntries()}><RefreshCw size={15} />重试</button></div>}
         {loading && !entries.length ? <div className="content-loading"><LoaderCircle className="spin" /><span>正在读取云端记录…</span></div> : (
           <>
-            {page === 'record' && <RecordView key={selectedDate} date={selectedDate} entry={selectedEntry} onDateChange={setSelectedDate} onSave={saveEntry} onDelete={deleteEntry} />}
-            {page === 'calendar' && <CalendarView entries={entries} onSelect={selectCalendarDate} />}
+            {page === 'record' && <RecordView key={selectedDate} date={selectedDate} entry={selectedEntry} tagLibrary={tagLibrary} onDateChange={setSelectedDate} onSave={saveEntry} onDelete={deleteEntry} onManageTags={() => setPage('settings')} />}
+            {page === 'calendar' && <CalendarView entries={entries} tagLibrary={tagLibrary} onSelect={selectCalendarDate} />}
             {page === 'trends' && <TrendsView entries={entries} />}
-            {page === 'settings' && <SettingsView user={user} entries={entries} onLogout={logout} onRefresh={loadEntries} refreshing={loading} />}
+            {page === 'settings' && <SettingsView user={user} entries={entries} tagLibrary={tagLibrary} onLogout={logout} onRefresh={loadEntries} refreshing={loading} onCreateTag={createTag} onUpdateTag={updateTag} onDeleteTag={deleteTag} />}
           </>
         )}
       </main>

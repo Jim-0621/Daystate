@@ -10,6 +10,13 @@ interface EntryBody {
   tags: string[]
 }
 
+interface TagRow {
+  name: string
+  color: string
+  initial: string
+  sort_order: number
+}
+
 interface EntryRow {
   entry_date: string
   mood: number
@@ -21,6 +28,13 @@ interface EntryRow {
 }
 
 const MAX_REQUEST_CHARS = 20_000
+const MAX_TAGS_PER_USER = 60
+const colorPattern = /^#[0-9a-f]{6}$/i
+// 老账号首次读取标签库时的种子，与记录页原先硬编码的建议标签一致
+const defaultTags: Array<[string, string]> = [
+  ['工作', '#4a7fb5'], ['运动', '#3f9e79'], ['家庭', '#c9784f'], ['朋友', '#b5698f'],
+  ['学习', '#7a6bb5'], ['睡眠', '#5b8fa8'], ['生病', '#b55a4a'], ['旅行', '#c2a03f'],
+]
 const usernamePattern = /^[\p{L}\p{N}_.-]{3,32}$/u
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 
@@ -169,6 +183,139 @@ function entryFromRow(row: EntryRow) {
   }
 }
 
+function tagFromRow(row: TagRow) {
+  return { name: row.name, color: row.color, initial: row.initial, sortOrder: row.sort_order }
+}
+
+async function readTags(env: Env, userId: string) {
+  const result = await env.DB.prepare(
+    'SELECT name, color, initial, sort_order FROM user_tags WHERE user_id = ? ORDER BY sort_order, name',
+  ).bind(userId).all<TagRow>()
+  return result.results
+}
+
+function parseTagList(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+// 老账号在建表前就已有记录，首次读取时用默认标签加历史记录中出现过的标签种子化，
+// 否则历史记录里的标签在标签库中找不到定义，会变成无法维护的孤儿。
+async function seedTags(env: Env, userId: string) {
+  const rows = await env.DB.prepare('SELECT tags FROM mood_entries WHERE user_id = ?')
+    .bind(userId).all<{ tags: string }>()
+  const seeded = new Map<string, string>(defaultTags)
+  for (const row of rows.results) {
+    for (const tag of parseTagList(row.tags)) {
+      const name = tag.trim()
+      if (name && !seeded.has(name)) seeded.set(name, '#7a7a72')
+    }
+  }
+  const now = new Date().toISOString()
+  const statement = env.DB.prepare(
+    'INSERT OR IGNORE INTO user_tags (user_id, name, color, initial, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  )
+  const batch = [...seeded.entries()].slice(0, MAX_TAGS_PER_USER).map(([name, color], index) =>
+    statement.bind(userId, name, color, [...name][0] ?? '·', index, now))
+  if (batch.length) await env.DB.batch(batch)
+}
+
+async function getTags(request: Request, env: Env) {
+  const user = await currentUser(request, env)
+  if (!user) return error('请先登录', 401)
+  let rows = await readTags(env, user.id)
+  if (!rows.length) {
+    await seedTags(env, user.id)
+    rows = await readTags(env, user.id)
+  }
+  return json({ tags: rows.map(tagFromRow) })
+}
+
+function parseTagInput(body: Record<string, unknown>) {
+  const name = String(body.name ?? '').trim()
+  const color = String(body.color ?? '').trim()
+  const initial = [...String(body.initial ?? '').trim()].slice(0, 2).join('')
+  if (!name || name.length > 20) return '标签名需为 1 至 20 个字符'
+  if (!colorPattern.test(color)) return '颜色格式不正确'
+  if (!initial) return '请填写首字'
+  return { name, color: color.toLowerCase(), initial }
+}
+
+// 改写历史记录中的标签名；rename 为 null 时表示删除该标签。
+async function rewriteEntryTags(env: Env, userId: string, from: string, to: string | null) {
+  const rows = await env.DB.prepare('SELECT entry_date, tags FROM mood_entries WHERE user_id = ?')
+    .bind(userId).all<{ entry_date: string; tags: string }>()
+  const statement = env.DB.prepare('UPDATE mood_entries SET tags = ? WHERE user_id = ? AND entry_date = ?')
+  const batch = []
+  for (const row of rows.results) {
+    const tags = parseTagList(row.tags)
+    if (!tags.includes(from)) continue
+    const next = to === null
+      ? tags.filter((tag) => tag !== from)
+      : [...new Set(tags.map((tag) => (tag === from ? to : tag)))]
+    batch.push(statement.bind(JSON.stringify(next), userId, row.entry_date))
+  }
+  if (batch.length) await env.DB.batch(batch)
+  return batch.length
+}
+
+async function createTag(request: Request, env: Env) {
+  if (!isSameOrigin(request)) return error('请求来源无效', 403)
+  const user = await currentUser(request, env)
+  if (!user) return error('请先登录', 401)
+  const parsed = parseTagInput(await requestBody(request))
+  if (typeof parsed === 'string') return error(parsed, 400)
+  const count = await env.DB.prepare('SELECT COUNT(*) AS total FROM user_tags WHERE user_id = ?')
+    .bind(user.id).first<{ total: number }>()
+  const total = count?.total ?? 0
+  if (total >= MAX_TAGS_PER_USER) return error(`最多只能创建 ${MAX_TAGS_PER_USER} 个标签`, 400)
+  const existing = await env.DB.prepare('SELECT name FROM user_tags WHERE user_id = ? AND name = ?')
+    .bind(user.id, parsed.name).first()
+  if (existing) return error('这个标签已经存在了', 409)
+  await env.DB.prepare(
+    'INSERT INTO user_tags (user_id, name, color, initial, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).bind(user.id, parsed.name, parsed.color, parsed.initial, total, new Date().toISOString()).run()
+  return json({ tags: (await readTags(env, user.id)).map(tagFromRow) }, 201)
+}
+
+async function updateTag(request: Request, env: Env, target: string) {
+  if (!isSameOrigin(request)) return error('请求来源无效', 403)
+  const user = await currentUser(request, env)
+  if (!user) return error('请先登录', 401)
+  const parsed = parseTagInput(await requestBody(request))
+  if (typeof parsed === 'string') return error(parsed, 400)
+  const current = await env.DB.prepare('SELECT sort_order FROM user_tags WHERE user_id = ? AND name = ?')
+    .bind(user.id, target).first<{ sort_order: number }>()
+  if (!current) return error('标签不存在', 404)
+  if (parsed.name !== target) {
+    const clash = await env.DB.prepare('SELECT name FROM user_tags WHERE user_id = ? AND name = ?')
+      .bind(user.id, parsed.name).first()
+    if (clash) return error('已经有同名标签了', 409)
+  }
+  // 主键含 name，改名只能删旧行再插新行
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM user_tags WHERE user_id = ? AND name = ?').bind(user.id, target),
+    env.DB.prepare(
+      'INSERT INTO user_tags (user_id, name, color, initial, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(user.id, parsed.name, parsed.color, parsed.initial, current.sort_order, new Date().toISOString()),
+  ])
+  const affected = parsed.name === target ? 0 : await rewriteEntryTags(env, user.id, target, parsed.name)
+  return json({ tags: (await readTags(env, user.id)).map(tagFromRow), affected })
+}
+
+async function deleteTag(request: Request, env: Env, target: string) {
+  if (!isSameOrigin(request)) return error('请求来源无效', 403)
+  const user = await currentUser(request, env)
+  if (!user) return error('请先登录', 401)
+  const affected = await rewriteEntryTags(env, user.id, target, null)
+  await env.DB.prepare('DELETE FROM user_tags WHERE user_id = ? AND name = ?').bind(user.id, target).run()
+  return json({ tags: (await readTags(env, user.id)).map(tagFromRow), affected })
+}
+
 async function getEntries(request: Request, env: Env) {
   const user = await currentUser(request, env)
   if (!user) return error('请先登录', 401)
@@ -221,6 +368,11 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
     if (pathname === '/api/logout' && request.method === 'POST') return await logout(request, env)
     if (pathname === '/api/me' && request.method === 'GET') return json({ user: await currentUser(request, env) })
     if (pathname === '/api/entries' && request.method === 'GET') return await getEntries(request, env)
+    if (pathname === '/api/tags' && request.method === 'GET') return await getTags(request, env)
+    if (pathname === '/api/tags' && request.method === 'POST') return await createTag(request, env)
+    const tagMatch = /^\/api\/tags\/(.+)$/.exec(pathname)
+    if (tagMatch && request.method === 'PUT') return await updateTag(request, env, decodeURIComponent(tagMatch[1]))
+    if (tagMatch && request.method === 'DELETE') return await deleteTag(request, env, decodeURIComponent(tagMatch[1]))
     const entryMatch = /^\/api\/entries\/(\d{4}-\d{2}-\d{2})$/.exec(pathname)
     if (entryMatch && request.method === 'PUT') return await putEntry(request, env, entryMatch[1])
     if (entryMatch && request.method === 'DELETE') return await deleteEntry(request, env, entryMatch[1])
