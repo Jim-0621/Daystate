@@ -270,7 +270,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .calendar-day.has-entry { background: var(--green-50); }
 .day-number { position: absolute; top: 8px; left: 10px; color: #6c6d67; font-size: 11px; }
 .day-emoji { font-size: 25px; }
-.battery-dot { position: absolute; right: 9px; bottom: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); }
+.day-battery { position: absolute; left: 50%; bottom: 9px; width: 58%; max-width: 44px; height: 4px; transform: translateX(-50%); border-radius: 99px; background: #e6e3da; overflow: hidden; }
+.day-battery i { display: block; height: 100%; border-radius: 99px; background: var(--green-600); }
+.day-battery.battery-20 i { background: #d25e4c; }
+.day-battery.battery-40 i { background: #e28c58; }
+.day-battery.battery-60 i { background: #d0a33f; }
 .calendar-day.mood-1 { background: #f2eef0; }
 .calendar-day.mood-2 { background: #f4f1e9; }
 .calendar-day.mood-3 { background: #eef3ef; }
@@ -279,6 +283,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .calendar-legend { margin-top: 20px; padding-top: 18px; display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .calendar-legend > span { display: flex; align-items: center; gap: 5px; }
 .legend-dot { width: 9px; height: 9px; display: inline-block; border-radius: 50%; background: #ddd; }
+.calendar-legend + .calendar-legend { margin-top: 9px; padding-top: 0; border-top: 0; }
+.legend-bar { width: 17px; height: 4px; display: inline-block; border-radius: 99px; background: var(--green-600); }
+.legend-bar.battery-20 { background: #d25e4c; }
+.legend-bar.battery-40 { background: #e28c58; }
+.legend-bar.battery-60 { background: #d0a33f; }
 .legend-dot.mood-1 { background: #9f8993; }.legend-dot.mood-2 { background: #b0a37f; }.legend-dot.mood-3 { background: #83a090; }.legend-dot.mood-4 { background: #56a581; }.legend-dot.mood-5 { background: #268f79; }
 
 /* Trends */
@@ -375,7 +384,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .calendar-day { min-height: 62px; padding: 4px; border-radius: 9px; }
   .day-number { top: 5px; left: 6px; font-size: 9px; }
   .day-emoji { font-size: 20px; }
-  .battery-dot { right: 5px; bottom: 5px; width: 5px; height: 5px; }
+  .day-battery { bottom: 5px; width: 68%; height: 3px; }
   .calendar-legend { gap: 8px; }
   .calendar-legend > span:first-child { width: 100%; justify-content: center; }
   .range-tabs { align-self: stretch; }

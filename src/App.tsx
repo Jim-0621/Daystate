@@ -19,7 +19,7 @@ const moodOptions: Array<{ value: Score; emoji: string; label: string }> = [
 ]
 
 const batteryOptions: Array<{ value: Score; percent: number; label: string }> = [
-  { value: 5, percent: 20, label: '快关机' },
+  { value: 5, percent: 20, label: '所剩无几' },
   { value: 4, percent: 40, label: '电量不足' },
   { value: 3, percent: 60, label: '还能撑住' },
   { value: 2, percent: 80, label: '电量充足' },
@@ -299,7 +299,7 @@ function RecordView({
         </section>
 
         <section className="form-section">
-          <div className="section-heading"><span className="section-number">02</span><div><h2>今天还剩多少电</h2><p>把自己当作一台设备，看看当前电量</p></div></div>
+          <div className="section-heading"><span className="section-number">02</span><div><h2>今天还剩多少电</h2><p>凭感觉估个大概就好，不用太精确</p></div></div>
           <ScorePicker kind="battery" value={fatigue} onChange={setFatigue} />
         </section>
 
@@ -378,13 +378,23 @@ function CalendarView({ entries, onSelect }: { entries: MoodEntry[]; onSelect: (
             return (
               <button key={date} disabled={future} className={`calendar-day ${currentMonth ? '' : 'outside'} ${date === localDate() ? 'today' : ''} ${entry ? `has-entry mood-${entry.mood}` : ''}`} onClick={() => onSelect(date)}>
                 <span className="day-number">{cell.getDate()}</span>
-                {entry && <><span className="day-emoji">{moodOptions[entry.mood - 1].emoji}</span><span className="battery-dot" title={`剩余电量 ${batteryPercent(entry.fatigue)}%`} style={{ opacity: 0.25 + batteryPercent(entry.fatigue) * 0.007 }} /></>}
+                {entry && (
+                  <>
+                    <span className="day-emoji">{moodOptions[entry.mood - 1].emoji}</span>
+                    <span className={`day-battery battery-${batteryPercent(entry.fatigue)}`} aria-label={`剩余电量 ${batteryPercent(entry.fatigue)}%`}>
+                      <i style={{ width: `${batteryPercent(entry.fatigue)}%` }} />
+                    </span>
+                  </>
+                )}
               </button>
             )
           })}
         </div>
         <div className="calendar-legend">
           <span>心情</span>{moodOptions.map((option) => <span key={option.value}><i className={`legend-dot mood-${option.value}`} />{option.label}</span>)}
+        </div>
+        <div className="calendar-legend">
+          <span>电量</span>{batteryOptions.map((option) => <span key={option.value}><i className={`legend-bar battery-${option.percent}`} />{option.percent}%</span>)}
         </div>
       </section>
     </div>
@@ -412,7 +422,7 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
       </header>
       <div className="stat-grid">
         <article className="stat-card"><span>平均心情</span><strong>{average(visible.map((entry) => entry.mood))}</strong><small>满分 5 分</small></article>
-        <article className="stat-card"><span>平均电量</span><strong>{averageBattery === '—' ? '—' : `${averageBattery}%`}</strong><small>剩余电量越高越充足</small></article>
+        <article className="stat-card"><span>平均电量</span><strong>{averageBattery === '—' ? '—' : `${averageBattery}%`}</strong><small>满电为 100%</small></article>
         <article className="stat-card"><span>记录天数</span><strong>{visible.length}</strong><small>最近 {range} 天</small></article>
         <article className="stat-card"><span>连续记录</span><strong>{streak}</strong><small>天</small></article>
       </div>
