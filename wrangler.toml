@@ -1,0 +1,9 @@
+name = "daystate"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-08-25"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "daystate-db"
+database_id = "855504d9-4631-4044-b2de-e3dfba9e03fa"
+migrations_dir = "migrations"
