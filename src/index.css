@@ -184,11 +184,33 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .step-arrow { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border: 0; border-radius: 50%; background: transparent; color: var(--green-700); cursor: pointer; transition: background .18s, color .18s; }
 .step-arrow:hover:not(:disabled) { background: var(--green-50); }
 .step-arrow:disabled { color: #c8c6bf; cursor: not-allowed; opacity: 1; }
-.step-face { position: relative; flex: 1; min-width: 132px; height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 99px; color: var(--green-900); font-size: 14px; font-weight: 700; cursor: pointer; transition: background .18s; }
+.step-face { flex: 1; min-width: 132px; height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 99px; background: transparent; color: var(--green-900); font-size: 14px; font-weight: 700; cursor: pointer; transition: background .18s; }
 .step-face:hover { background: var(--green-50); }
 .step-face > svg { flex: 0 0 auto; color: var(--green-700); }
-.step-face input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; margin: 0; border: 0; opacity: 0; cursor: pointer; }
-.step-face input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+
+/* 原生日期弹窗无法被 CSS 触及，这里是替代它的自绘浮层 */
+.date-control { position: relative; display: inline-flex; flex-direction: column; }
+.date-popover { position: absolute; top: calc(100% + 9px); right: 0; z-index: 40; width: min(304px, calc(100vw - 34px)); padding: 15px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); box-shadow: var(--shadow); animation: popover-in .16s ease-out; }
+@keyframes popover-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+.popover-toolbar { display: grid; grid-template-columns: 32px 1fr 32px; align-items: center; text-align: center; }
+.popover-toolbar strong { font: 700 15px/1.4 'STZhongsong', 'SimSun', serif; }
+.popover-toolbar .step-arrow { width: 32px; height: 32px; }
+.popover-weekdays, .popover-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.popover-weekdays { margin: 12px 0 5px; color: #918f88; font-size: 11px; text-align: center; }
+.popover-grid { gap: 2px; }
+.popover-day { position: relative; aspect-ratio: 1; display: grid; place-items: center; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #3d4642; font-size: 13px; cursor: pointer; transition: background .15s, color .15s; }
+.popover-day:hover:not(:disabled) { background: var(--green-50); }
+.popover-day.outside { color: #bfbdb6; }
+.popover-day:disabled { color: #d3d1ca; cursor: not-allowed; opacity: 1; }
+.popover-day.today { border-color: var(--green-600); font-weight: 700; }
+.popover-day.selected { background: var(--green-700); color: white; font-weight: 700; }
+.popover-day.selected:hover { background: var(--green-900); }
+.popover-mark { position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--green-600); }
+.popover-day.selected .popover-mark { background: rgba(255,255,255,.85); }
+.popover-day:disabled .popover-mark { background: #d3d1ca; }
+.popover-footer { margin-top: 11px; padding-top: 11px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); color: #99968f; font-size: 11px; }
+.popover-footer .link-button { font-size: 12px; }
+.popover-footer .link-button:disabled { color: #bfbdb6; cursor: not-allowed; text-decoration: none; }
 .load-error { position: sticky; top: 10px; z-index: 30; width: min(560px, calc(100% - 40px)); margin: 10px auto -54px; display: flex; align-items: center; justify-content: space-between; box-shadow: var(--shadow); }
 .load-error button { display: flex; align-items: center; gap: 5px; border: 0; background: transparent; color: inherit; font-weight: 700; cursor: pointer; }
 .content-loading { min-height: 70vh; }
@@ -387,7 +409,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .page-header { margin-bottom: 24px; align-items: flex-start; }
   .page-header h1 { font-size: 29px; }
   .record-header, .trends-header { flex-direction: column; }
-  .date-stepper { width: 100%; align-self: stretch; }
+  .date-control { width: 100%; align-self: stretch; }
+  .date-stepper { width: 100%; }
+  .date-popover { width: 100%; }
   .form-section { padding: 22px 18px; border-radius: 17px; }
   .section-heading { margin-bottom: 20px; }
   .score-picker { gap: 5px; }

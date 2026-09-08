@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   CalendarDays, ChartNoAxesCombined, Check, ChevronLeft, ChevronRight, Cloud,
   Download, LoaderCircle, LogOut, NotebookPen, Pencil, Plus, RefreshCw, Settings,
@@ -168,22 +168,123 @@ function LoginView({ onAuthenticated }: { onAuthenticated: (user: User) => void 
   )
 }
 
-function DateStepper({ date, onDateChange }: { date: string; onDateChange: (date: string) => void }) {
+function DatePopover({ value, entryDates, onPick }: {
+  value: string
+  entryDates: Set<string>
+  onPick: (date: string) => void
+}) {
+  const today = localDate()
+  const [month, setMonth] = useState(() => {
+    const base = dateFrom(value)
+    return new Date(base.getFullYear(), base.getMonth(), 1)
+  })
+
+  const cells = useMemo(() => {
+    const first = new Date(month.getFullYear(), month.getMonth(), 1)
+    const offset = (first.getDay() + 6) % 7
+    const start = new Date(month.getFullYear(), month.getMonth(), 1 - offset)
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start)
+      date.setDate(start.getDate() + index)
+      return date
+    })
+  }, [month])
+
+  const nextMonthStart = new Date(month.getFullYear(), month.getMonth() + 1, 1)
+  const canGoNext = localDate(nextMonthStart) <= today
+
+  return (
+    <div className="date-popover" role="dialog" aria-label="选择记录日期">
+      <div className="popover-toolbar">
+        <button type="button" className="step-arrow" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="上个月">
+          <ChevronLeft size={17} />
+        </button>
+        <strong>{formatMonth(month)}</strong>
+        <button type="button" className="step-arrow" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} disabled={!canGoNext} aria-label="下个月">
+          <ChevronRight size={17} />
+        </button>
+      </div>
+      <div className="popover-weekdays">{['一', '二', '三', '四', '五', '六', '日'].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="popover-grid">
+        {cells.map((cell) => {
+          const date = localDate(cell)
+          const outside = cell.getMonth() !== month.getMonth()
+          const classes = ['popover-day']
+          if (outside) classes.push('outside')
+          if (date === today) classes.push('today')
+          if (date === value) classes.push('selected')
+          return (
+            <button
+              key={date}
+              type="button"
+              className={classes.join(' ')}
+              disabled={date > today}
+              onClick={() => onPick(date)}
+              aria-current={date === value ? 'date' : undefined}
+            >
+              {cell.getDate()}
+              {/* 已有记录的日子标一个点，补记时一眼看出哪天还空着 */}
+              {entryDates.has(date) && <i className="popover-mark" />}
+            </button>
+          )
+        })}
+      </div>
+      <div className="popover-footer">
+        <span>有记录的日子带小圆点</span>
+        <button type="button" className="link-button" onClick={() => onPick(today)} disabled={value === today}>回到今天</button>
+      </div>
+    </div>
+  )
+}
+
+function DateStepper({ date, entryDates, onDateChange }: {
+  date: string
+  entryDates: Set<string>
+  onDateChange: (date: string) => void
+}) {
   const today = localDate()
   const atToday = date >= today
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  // 点到控件外面或按 Esc 时收起浮层；点控件自身交给按钮各自处理
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(event: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
   return (
-    <div className="date-stepper">
-      <button type="button" className="step-arrow" onClick={() => onDateChange(addDays(date, -1))} aria-label="前一天">
-        <ChevronLeft size={18} />
-      </button>
-      <label className="step-face">
-        <CalendarDays size={16} aria-hidden="true" />
-        <span>{date === today ? '今天' : formatDayLabel(date)}</span>
-        <input type="date" max={today} value={date} onChange={(event) => { if (event.target.value) onDateChange(event.target.value) }} aria-label="选择记录日期" />
-      </label>
-      <button type="button" className="step-arrow" onClick={() => onDateChange(addDays(date, 1))} disabled={atToday} aria-label="后一天">
-        <ChevronRight size={18} />
-      </button>
+    <div className="date-control" ref={wrapRef}>
+      <div className="date-stepper">
+        <button type="button" className="step-arrow" onClick={() => onDateChange(addDays(date, -1))} aria-label="前一天">
+          <ChevronLeft size={18} />
+        </button>
+        <button type="button" className="step-face" onClick={() => setOpen((current) => !current)} aria-haspopup="dialog" aria-expanded={open}>
+          <CalendarDays size={16} aria-hidden="true" />
+          <span>{date === today ? '今天' : formatDayLabel(date)}</span>
+        </button>
+        <button type="button" className="step-arrow" onClick={() => onDateChange(addDays(date, 1))} disabled={atToday} aria-label="后一天">
+          <ChevronRight size={18} />
+        </button>
+      </div>
+      {open && (
+        <DatePopover
+          value={date}
+          entryDates={entryDates}
+          onPick={(picked) => { onDateChange(picked); setOpen(false) }}
+        />
+      )}
     </div>
   )
 }
@@ -232,11 +333,12 @@ function ScorePicker({ kind, value, onChange }: { kind: 'mood' | 'battery'; valu
 }
 
 function RecordView({
-  date, entry, tagLibrary, onDateChange, onSave, onDelete, onManageTags,
+  date, entry, tagLibrary, entryDates, onDateChange, onSave, onDelete, onManageTags,
 }: {
   date: string
   entry?: MoodEntry
   tagLibrary: Tag[]
+  entryDates: Set<string>
   onDateChange: (date: string) => void
   onSave: (input: EntryInput) => Promise<void>
   onDelete: () => Promise<void>
@@ -298,7 +400,7 @@ function RecordView({
           <h1>{prettyDate(date)}，感觉怎么样？</h1>
           <p>不用写得完整，真实就很好。</p>
         </div>
-        <DateStepper date={date} onDateChange={onDateChange} />
+        <DateStepper date={date} entryDates={entryDates} onDateChange={onDateChange} />
       </header>
 
       <form className="record-form" onSubmit={submit}>
@@ -752,6 +854,7 @@ function JournalApp({ user, onLoggedOut }: { user: User; onLoggedOut: () => void
 
   useEffect(() => { void loadEntries() }, [loadEntries])
   const selectedEntry = entries.find((entry) => entry.date === selectedDate)
+  const entryDates = useMemo(() => new Set(entries.map((entry) => entry.date)), [entries])
 
   async function saveEntry(input: EntryInput) {
     const result = await api.saveEntry(selectedDate, input)
@@ -784,7 +887,7 @@ function JournalApp({ user, onLoggedOut }: { user: User; onLoggedOut: () => void
         {loadError && <div className="load-error"><span>{loadError}</span><button onClick={() => void loadEntries()}><RefreshCw size={15} />重试</button></div>}
         {loading && !entries.length ? <div className="content-loading"><LoaderCircle className="spin" /><span>正在读取云端记录…</span></div> : (
           <>
-            {page === 'record' && <RecordView key={selectedDate} date={selectedDate} entry={selectedEntry} tagLibrary={tagLibrary} onDateChange={setSelectedDate} onSave={saveEntry} onDelete={deleteEntry} onManageTags={() => setPage('settings')} />}
+            {page === 'record' && <RecordView key={selectedDate} date={selectedDate} entry={selectedEntry} tagLibrary={tagLibrary} entryDates={entryDates} onDateChange={setSelectedDate} onSave={saveEntry} onDelete={deleteEntry} onManageTags={() => setPage('settings')} />}
             {page === 'calendar' && <CalendarView entries={entries} tagLibrary={tagLibrary} onSelect={selectCalendarDate} />}
             {page === 'trends' && <TrendsView entries={entries} />}
             {page === 'settings' && <SettingsView user={user} entries={entries} tagLibrary={tagLibrary} onLogout={logout} onRefresh={loadEntries} refreshing={loading} onCreateTag={createTag} onUpdateTag={updateTag} onDeleteTag={deleteTag} />}
