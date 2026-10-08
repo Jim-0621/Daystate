@@ -511,10 +511,11 @@ function CalendarView({ entries, tagLibrary, onSelect }: { entries: MoodEntry[];
                     <span className="day-emoji">{moodOptions[entry.mood - 1].emoji}</span>
                     {entry.tags.length > 0 && (
                       <span className="day-tags">
-                        {entry.tags.slice(0, 3).map((name) => {
-                          const tag = lookupTag(name)
+                        {entry.tags.map(lookupTag)
+                          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh-CN'))
+                          .slice(0, 3).map((tag) => {
                           return (
-                            <i key={name} className="day-tag" style={{ background: tag.color }} title={tag.name}>
+                            <i key={tag.name} className="day-tag" style={{ background: tag.color }} title={tag.name}>
                               {/* 桌面显示全名，窄屏由 CSS 切换成首字 */}
                               <b className="tag-full">{tag.name}</b>
                               <b className="tag-initial">{tag.initial}</b>
