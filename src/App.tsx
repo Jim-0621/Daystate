@@ -18,6 +18,10 @@ const moodOptions: Array<{ value: Score; emoji: string; label: string }> = [
   { value: 5, emoji: '😄', label: '很好' },
 ]
 
+function moodLabel(value: unknown) {
+  return moodOptions.find((option) => option.value === Number(value))?.label ?? '—'
+}
+
 const batteryOptions: Array<{ value: Score; percent: number; label: string }> = [
   { value: 5, percent: 20, label: '所剩无几' },
   { value: 4, percent: 40, label: '电量不足' },
@@ -552,6 +556,9 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
     return entries.filter((entry) => entry.date >= start && entry.date <= localDate()).sort((a, b) => a.date.localeCompare(b.date))
   }, [entries, range])
   const chartData = visible.map((entry) => ({ ...entry, battery: batteryPercent(entry.fatigue), label: entry.date.slice(5).replace('-', '/') }))
+  const averageMood = visible.length
+    ? moodLabel(Math.round(visible.reduce((sum, entry) => sum + entry.mood, 0) / visible.length))
+    : '—'
   const averageBattery = average(visible.map((entry) => batteryPercent(entry.fatigue)))
   const entrySet = new Set(entries.map((entry) => entry.date))
   const today = localDate()
@@ -568,7 +575,7 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
         <div className="range-tabs">{([7, 30, 90] as const).map((value) => <button key={value} className={range === value ? 'active' : ''} onClick={() => setRange(value)}>{value} 天</button>)}</div>
       </header>
       <div className="stat-grid">
-        <article className="stat-card"><span>平均心情</span><strong>{average(visible.map((entry) => entry.mood))}</strong><small>满分 5 分</small></article>
+        <article className="stat-card"><span>平均心情</span><strong>{averageMood}</strong><small>最接近平均状态的心情</small></article>
         <article className="stat-card"><span>平均电量</span><strong>{averageBattery === '—' ? '—' : `${averageBattery}%`}</strong><small>满电为 100%</small></article>
         <article className="stat-card"><span>记录天数</span><strong>{visible.length}</strong><small>最近 {range} 天</small></article>
         <article className="stat-card"><span>连续记录</span><strong>{streak}</strong><small>{streak > 0 && !loggedToday ? '天 · 今天还没记' : '天'}</small></article>
@@ -581,9 +588,13 @@ function TrendsView({ entries }: { entries: MoodEntry[] }) {
               <LineChart data={chartData} margin={{ top: 12, right: 12, left: -22, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 5" stroke="#dfddd5" vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: '#75736d', fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={24} />
-                <YAxis yAxisId="mood" domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={{ fill: '#75736d', fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="mood" domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tickFormatter={moodLabel} width={68} tick={{ fill: '#75736d', fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="battery" orientation="right" domain={[0, 100]} ticks={[20, 40, 60, 80, 100]} tickFormatter={(value) => `${value}%`} tick={{ fill: '#75736d', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 14, border: '1px solid #e3e0d8', boxShadow: '0 12px 30px rgba(45,55,50,.1)' }} labelFormatter={(label) => `日期 ${label}`} />
+                <Tooltip
+                  contentStyle={{ borderRadius: 14, border: '1px solid #e3e0d8', boxShadow: '0 12px 30px rgba(45,55,50,.1)' }}
+                  labelFormatter={(label) => `日期 ${label}`}
+                  formatter={(value, _name, item) => item.dataKey === 'mood' ? moodLabel(value) : value}
+                />
                 <Legend iconType="circle" />
                 <Line yAxisId="mood" type="monotone" dataKey="mood" name="心情" stroke="#268f79" strokeWidth={3} dot={{ r: 3, fill: '#268f79' }} activeDot={{ r: 5 }} connectNulls />
                 <Line yAxisId="battery" type="monotone" dataKey="battery" name="电量" unit="%" stroke="#e28c58" strokeWidth={3} dot={{ r: 3, fill: '#e28c58' }} activeDot={{ r: 5 }} connectNulls />
